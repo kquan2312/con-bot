@@ -1,7 +1,7 @@
 {
   "name": "disbot",
   "version": "1.0.0",
-  "main": "src/bot.js",
+  "main": "src/index.js",
   "scripts": {
     "start": "node .",
     "deploy-commands": "node src/deploy-commands.js",
@@ -12,7 +12,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "cron": "^4.3.5",
     "discord.js": "^14.15.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.6.1",
+    "node-cron": "^4.2.1"
   }
 }
