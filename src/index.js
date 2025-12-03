@@ -36,8 +36,18 @@ for (const file of eventFiles) {
 }
 // Cron job check patch mỗi giờ
 const checkUpdateCommand = client.commands.get('checkupdate');
-cron.schedule('0 * * * *', () => {
-    checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true);
+cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi ngày
+    // Thêm log để dễ dàng theo dõi
+    const logMessage = `[${new Date().toLocaleString()}] Running cron job to check for patch update...`;
+    console.log(logMessage);
+
+    // Gửi tin nhắn đến channel khi cron job bắt đầu
+    const channel = client.channels.cache.get(process.env.CHANNEL_ID);
+    if (channel) { // Gửi tin nhắn "Đang kiểm tra..." và lấy đối tượng message
+        const messageToEdit = await channel.send('Đang kiểm tra bản cập nhật...').catch(console.error);
+        // Truyền message vào hàm checkPatch để chỉnh sửa sau
+        checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
+    }
 });
 
 client.login(process.env.BOT_TOKEN);
