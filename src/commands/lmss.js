@@ -1,13 +1,53 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getRankInfo } = require("../utils/lmssScraper");
+const axios = require('axios');
+const API_KEY = 'v5'; // LMSS+ API key
+
+async function getRankInfo(summonerName) {
+    try {
+        const encodedName = encodeURIComponent(summonerName);
+
+        // 1️⃣ Lấy info summoner
+        const summonerRes = await axios.get(
+            `https://lmssplus.org/api/riot/v3/summoners/by-name?name=${encodedName}&region=VN2&api_key=${API_KEY}`
+        );
+        const { puuid, summonerName: displayName, server } = summonerRes.data;
+
+        // 2️⃣ Lấy tất cả rank chỉ với 1 request
+        const rankRes = await axios.get(
+            `https://lmssplus.org/api/riot/v1/rank/new/${server}/RANKED_SOLO_5x5/${puuid}`
+        );
+
+        const queues = [];
+
+        if (rankRes.data && rankRes.data.length > 0) {
+            rankRes.data.forEach(q => {
+                queues.push({
+                    queueType: q.queueType === 'RANKED_SOLO_5x5' ? 'Đơn/Đôi' : 'Linh Hoạt',
+                    tier: q.tier,
+                    rank: q.rank,
+                    lp: q.leaguePoints,
+                    wins: q.wins,
+                    losses: q.losses,
+                    winrate: q.wins + q.losses > 0 ? ((q.wins / (q.wins + q.losses)) * 100).toFixed(2) + '%' : 'N/A'
+                });
+            });
+        }
+
+        return { success: true, summoner: displayName, server, queues };
+    } catch (err) {
+        if (!err.response || err.response.status !== 404) console.error('Lỗi khi lấy thông tin rank:', err);
+        if (err.response && err.response.status === 404) return { success: false, error: 'Không tìm thấy người chơi này!' };
+        return { success: false, error: 'Có lỗi xảy ra khi lấy thông tin rank. Vui lòng thử lại sau.' };
+    }
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('rank')
-        .setDescription('Kiểm tra rank LMHT của một người chơi từ LMSS+.')
+        .setDescription('Kiểm tra rank LMHT của một người chơi (dữ liệu từ LMSS+).')
         .addStringOption(option =>
             option.setName('summonername')
-                .setDescription('Tên người chơi bạn muốn kiểm tra')
+                .setDescription('Tên người chơi (ví dụ: ABC#1234)')
                 .setRequired(true)),
 
     async execute(interactionOrMessage, args = []) {
@@ -15,27 +55,22 @@ module.exports = {
         let summonerName;
 
         if (isInteraction) {
-            summonerName = interactionOrMessage.options.getString('summonername');
+            await interactionOrMessage.deferReply();
+            summonerName = interactionOrMessage.options.getString('summonername').trim();
         } else {
             summonerName = args.join(" ");
-            if (!summonerName) {
-                return interactionOrMessage.reply("Bạn phải nhập tên summoner nha! (ví dụ: `!rank BADASSATRON#VN23`)");
-            }
+            if (!summonerName) return interactionOrMessage.reply("Bạn phải nhập tên người chơi!");
         }
 
-        const sentMessage = await interactionOrMessage.reply({
-            content: `Đang tìm thông tin rank của **${summonerName}**...`,
-            fetchReply: true
-        });
-
         const rankData = await getRankInfo(summonerName);
+        const replyFn = isInteraction ? interactionOrMessage.editReply.bind(interactionOrMessage) : interactionOrMessage.reply.bind(interactionOrMessage);
 
         if (!rankData.success) {
             const errorEmbed = new EmbedBuilder()
                 .setColor(0xFF0000)
                 .setTitle('Lỗi')
                 .setDescription(rankData.error);
-            return sentMessage.edit({ content: '', embeds: [errorEmbed] });
+            return replyFn({ content: '', embeds: [errorEmbed] });
         }
 
         const successEmbed = new EmbedBuilder()
@@ -44,13 +79,17 @@ module.exports = {
             .setTimestamp()
             .setFooter({ text: 'Dữ liệu từ LMSS+' });
 
-        rankData.queues.forEach(q => {
-            successEmbed.addFields({
-                name: q.queueType,
-                value: `Rank: **${q.tier} ${q.rank}**\nLP: **${q.lp}**\nWinrate: **${q.winrate}**`
-            });
-        });
+        if (rankData.queues.length > 0) {
+            const fields = rankData.queues.map(q => ({
+                name: `Bảng xếp hạng: ${q.queueType}`,
+                value: `**${q.tier} ${q.rank}** - **${q.lp} LP**\nThắng: ${q.wins} | Thua: ${q.losses}\nTỉ lệ thắng: **${q.winrate}**`,
+                inline: true
+            }));
+            successEmbed.addFields(fields);
+        } else {
+            successEmbed.setDescription('Người chơi này chưa có rank trong mùa hiện tại.');
+        }
 
-        await sentMessage.edit({ content: '', embeds: [successEmbed] });
+        await replyFn({ content: '', embeds: [successEmbed] });
     },
 };
