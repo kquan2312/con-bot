@@ -3,7 +3,7 @@ const axios = require('axios');
 
 // Bạn nên lưu trữ token này trong file .env để bảo mật hơn
 const WEATHER_API_TOKEN = process.env.WEATHER_API_TOKEN || 'db49057747b00b5a079f1e90e35bc0db2c924541';
-const API_URL = `https://api.waqi.info/feed/here/?token=${WEATHER_API_TOKEN}`;
+const API_URL = `https://api.waqi.info/feed/vietnam/hanoi/unis/?token=${WEATHER_API_TOKEN}`;
 
 /**
  * Lấy thông tin chất lượng không khí (AQI) và diễn giải nó.

@@ -25,11 +25,11 @@ async function checkPatch(client, channelId, notifyNew = false, messageToEdit = 
             fs.writeFileSync(filePath, JSON.stringify({ version: latestPatch }, null, 2));
             if (notifyNew && client) {
                 const channel = client.channels.cache.get(channelId);
-                const messageContent = `📢 LMHT đã có bản cập nhật mới: **${latestPatch}**. Nhớ update nhé!`;
+                const messageContent = `📢 LMHT đã có bản cập nhật mới: **${latestPatch}**. Nhớ update nhé!     `;
                 messageToEdit ? await messageToEdit.edit(messageContent) : await channel.send(messageContent);
             }
         } else if (messageToEdit) {
-            await messageToEdit.edit(`✅ Không có bản cập nhật mới. Phiên bản hiện tại là **${latestPatch}**.`);
+            await messageToEdit.edit(`✅ Không có bản cập nhật LMHT mới. Phiên bản hiện tại là **${latestPatch}**.`);
         }
 
         return latestPatch;
