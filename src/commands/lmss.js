@@ -1,19 +1,29 @@
+require('dotenv').config(); // Tải các biến môi trường từ file .env
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
-const API_KEY = 'v5'; // LMSS+ API key
+const API_KEY = process.env.LMSS_API_KEY; // Lấy API key từ biến môi trường
+
+const axiosInstance = axios.create({
+    headers: { 'User-Agent': 'ConBot/1.0' } // Thêm User-Agent để tránh bị chặn
+});
 
 async function getRankInfo(summonerName) {
+    if (!API_KEY) {
+        console.error('LMSS_API_KEY chưa được thiết lập trong biến môi trường.');
+        return { success: false, error: 'Lỗi cấu hình phía bot: API Key chưa được thiết lập.' };
+    }
+
     try {
         const encodedName = encodeURIComponent(summonerName);
 
         // 1️⃣ Lấy info summoner
-        const summonerRes = await axios.get(
+        const summonerRes = await axiosInstance.get(
             `https://lmssplus.org/api/riot/v3/summoners/by-name?name=${encodedName}&region=VN2&api_key=${API_KEY}`
         );
         const { puuid, summonerName: displayName, server } = summonerRes.data;
 
         // 2️⃣ Lấy tất cả rank chỉ với 1 request
-        const rankRes = await axios.get(
+        const rankRes = await axiosInstance.get(
             `https://lmssplus.org/api/riot/v1/rank/new/${server}/RANKED_SOLO_5x5/${puuid}`
         );
 
@@ -35,7 +45,11 @@ async function getRankInfo(summonerName) {
 
         return { success: true, summoner: displayName, server, queues };
     } catch (err) {
-        if (!err.response || err.response.status !== 404) console.error('Lỗi khi lấy thông tin rank:', err);
+        // Log lỗi chi tiết hơn để debug trên Railway
+        console.error('Đã xảy ra lỗi khi gọi API LMSS+:', {
+            message: err.message,
+            response: err.response ? { status: err.response.status, data: err.response.data } : 'Không có phản hồi từ server'
+        });
         if (err.response && err.response.status === 404) return { success: false, error: 'Không tìm thấy người chơi này!' };
         return { success: false, error: 'Có lỗi xảy ra khi lấy thông tin rank. Vui lòng thử lại sau.' };
     }
