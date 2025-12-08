@@ -152,11 +152,25 @@ module.exports = {
       let aqiError = true;
       let usedNearest = false;
       try {
+        const distance = (lat1, lon1, lat2, lon2) =>
+          Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
+
         const aqiRes = await axios.get(
           `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${WEATHER_API_TOKEN}`
         );
         if (aqiRes.data.status === "ok") {
           aqiBlock = aqiRes.data.data;
+          const stationLat = aqiBlock.city.geo[0];
+          const stationLon = aqiBlock.city.geo[1];
+          const dist = distance(lat, lon, stationLat, stationLon);
+          const distKm = dist * 111; // ~111km per degree of latitude/longitude
+
+          // Nếu trạm trả về cách vị trí tìm kiếm hơn 50km, coi như là trạm gần nhất
+          if (distKm > 50) {
+            usedNearest = true;
+            aqiBlock.distance = dist;
+          }
+
           aqiError = false;
         } else {
           // fallback: tìm trạm gần nhất
@@ -167,9 +181,6 @@ module.exports = {
             nearbyRes.data.status === "ok" &&
             nearbyRes.data.data.length > 0
           ) {
-            const distance = (lat1, lon1, lat2, lon2) =>
-              Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
-
             const validStations = nearbyRes.data.data.filter(
               (s) => s.aqi !== "-"
             );
@@ -238,7 +249,7 @@ module.exports = {
         aqiTimeFormatted = `${hour}:${minute} - ${day}/${month}/${year}`;
       }
 
-      embed.addFields(
+      embed.addFields([
         {
           name: "🌫 AQI",
           value: aqiError
@@ -248,38 +259,21 @@ module.exports = {
         {
           name: "📍 Trạm AQI",
           value: aqiError
-            ? "-"
-            : `${aqiBlock.city.name}${
-                usedNearest
-                  ? ` (gần nhất, cách ~${(aqiBlock.distance * 111).toFixed(
-                      1
-                    )} km)`
-                  : ""
-              }`,
-        }
-      );
-
-      embed.addFields(
+            ? "Không có dữ liệu."
+            : usedNearest
+            ? `Không có trạm tại vị trí này. Sử dụng trạm gần nhất:\n**${
+                aqiBlock.city.name
+              }** (cách ~${(aqiBlock.distance * 111).toFixed(1)} km)`
+            : aqiBlock.city.name,
+        },
         { name: "🕒 Cập nhật AQI lúc", value: aqiTimeFormatted },
         { name: "🌦 Thời tiết", value: `${weatherCode} (${weatherText})` },
         { name: "☁ Độ che phủ", value: `${cloudCover}%`, inline: true },
         { name: "🌧 Lượng mưa", value: `${precipitation} mm`, inline: true },
-        {
-          name: "🌡 Nhiệt độ (Dự báo)",
-          value: `${tempForecast}°C`,
-          inline: true,
-        },
-        {
-          name: "💧 Độ ẩm (Dự báo)",
-          value: `${humidityForecast}%`,
-          inline: true,
-        },
-        {
-          name: "💨 Tốc độ gió (Dự báo)",
-          value: `${windForecast} km/h`,
-          inline: true,
-        }
-      );
+        { name: "🌡 Nhiệt độ (Dự báo)", value: `${tempForecast}°C`, inline: true },
+        { name: "💧 Độ ẩm (Dự báo)", value: `${humidityForecast}%`, inline: true },
+        { name: "💨 Tốc độ gió (Dự báo)", value: `${windForecast} km/h`, inline: true },
+      ]);
 
       embed.setFooter({
         text: `Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(
