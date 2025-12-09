@@ -49,11 +49,6 @@ function getAqiInfo(aqi) {
 }
 
 // =======================
-// Vietnam bounding box
-// =======================
-const VN_BOUNDS = { minLat: 8, maxLat: 24, minLon: 102, maxLon: 110 };
-
-// =======================
 // Weathercode tiếng Việt
 // =======================
 const weatherTextMap = {
@@ -88,7 +83,7 @@ const weatherTextMap = {
 };
 
 // =======================
-// Main
+// MAIN
 // =======================
 module.exports = {
   data: new SlashCommandBuilder()
@@ -112,11 +107,10 @@ module.exports = {
       location = args.slice(1).join(" ");
     }
 
-    if (!location) {
+    if (!location)
       return interactionOrMessage.reply(
         "Nhập location: ví dụ `!checkweather Hanoi`"
       );
-    }
 
     const sent = await interactionOrMessage.reply({
       content: `🔍 Đang tìm vị trí **${location}**...`,
@@ -126,198 +120,173 @@ module.exports = {
     try {
       const startTime = Date.now();
       const originalInput = location;
+
       const normalized = location.trim().toLowerCase();
       if (provinceAlias[normalized]) location = provinceAlias[normalized];
 
-      // ======================
-      // 1) Geocoding API
-      // ======================
+      // ============================
+      // 1) GEOCODING LẤY TỌA ĐỘ
+      // ============================
       const geoRes = await axios.get(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
           location
         )}`
       );
+
       if (!geoRes.data.results || geoRes.data.results.length === 0)
         return sent.edit(`❌ Không tìm thấy địa điểm: **${originalInput}**`);
 
       const place = geoRes.data.results[0];
       const lat = place.latitude;
       const lon = place.longitude;
-      console.log("📍 Vị trí người dùng nhập:", place);
 
-      // ======================
-      // 2) AQI API /feed/geo:lat;lon/
-      // ======================
+      // ============================
+      // 2) **AQI MỚI – SEARCH THEO TÊN TỈNH**
+      // ============================
       let aqiBlock = null;
-      let aqiError = true;
-      let usedNearest = false;
+      let aqiError = false;
+      let aqiNote = null;
+
       try {
-        const distance = (lat1, lon1, lat2, lon2) =>
-          Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
-
-        const aqiRes = await axios.get(
-          `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${WEATHER_API_TOKEN}`
+        const searchRes = await axios.get(
+          `https://api.waqi.info/search/?keyword=${encodeURIComponent(
+            location
+          )}&token=${WEATHER_API_TOKEN}`
         );
-        if (aqiRes.data.status === "ok") {
-          aqiBlock = aqiRes.data.data;
-          const stationLat = aqiBlock.city.geo[0];
-          const stationLon = aqiBlock.city.geo[1];
-          const dist = distance(lat, lon, stationLat, stationLon);
-          const distKm = dist * 111; // ~111km per degree of latitude/longitude
 
-          // Nếu trạm trả về cách vị trí tìm kiếm hơn 50km, coi như là trạm gần nhất
-          if (distKm > 50) {
-            usedNearest = true;
-            aqiBlock.distance = dist;
-          }
-
-          aqiError = false;
+        if (!searchRes.data.data || searchRes.data.data.length === 0) {
+          aqiError = true;
         } else {
-          // fallback: tìm trạm gần nhất
-          const nearbyRes = await axios.get(
-            `https://api.waqi.info/map/bounds/?token=${WEATHER_API_TOKEN}&latlng=${VN_BOUNDS.minLat},${VN_BOUNDS.minLon},${VN_BOUNDS.maxLat},${VN_BOUNDS.maxLon}`
+          const uid = searchRes.data.data[0].uid;
+
+          const feedRes = await axios.get(
+            `https://api.waqi.info/feed/@${uid}/?token=${WEATHER_API_TOKEN}`
           );
-          if (
-            nearbyRes.data.status === "ok" &&
-            nearbyRes.data.data.length > 0
-          ) {
-            const validStations = nearbyRes.data.data.filter(
-              (s) => s.aqi !== "-"
-            );
-            if (validStations.length > 0) {
-              const nearestStation = validStations.reduce((prev, curr) =>
-                distance(lat, lon, curr.lat, curr.lon) <
-                distance(lat, lon, prev.lat, prev.lon)
-                  ? curr
-                  : prev
-              );
-              const dist = distance(
-                lat,
-                lon,
-                nearestStation.lat,
-                nearestStation.lon
-              );
-              aqiBlock = {
-                aqi: nearestStation.aqi,
-                city: { name: nearestStation.station.name },
-                iaqi: nearestStation.iaqi || {},
-                time: { s: nearestStation.station.time }, // Lấy thời gian từ trạm gần nhất
-              };
-              aqiError = false;
-              usedNearest = true;
-              aqiBlock.distance = dist;
+
+          if (feedRes.data.status === "ok") {
+            const data = feedRes.data.data;
+            // Nếu aqi là "-", thử ước tính từ các chỉ số khác
+            if (data.aqi === "-") {
+              let maxPollutant = { value: -1, name: "" };
+              // Chỉ xem xét các chất gây ô nhiễm thực tế, bỏ qua các chỉ số thời tiết như P (áp suất), T (nhiệt độ), H (độ ẩm)...
+              const validPollutants = ["pm25", "pm10", "o3", "no2", "so2", "co"];
+
+              if (data.iaqi) {
+                for (const pollutant in data.iaqi) {
+                  if (
+                    validPollutants.includes(pollutant) &&
+                    data.iaqi[pollutant].v > maxPollutant.value
+                  ) {
+                    maxPollutant.value = data.iaqi[pollutant].v;
+                    maxPollutant.name = pollutant.toUpperCase();
+                  }
+                }
+              }
+
+              if (maxPollutant.value > -1) {
+                data.aqi = maxPollutant.value;
+                aqiNote = `(Ước tính từ ${maxPollutant.name})`;
+              } else {
+                aqiError = true; // Không có dữ liệu nào để ước tính
+              }
             }
-          }
+            if (!aqiError) aqiBlock = data;
+          } else aqiError = true;
         }
       } catch (err) {
-        console.warn("Không lấy được trạm AQI", err);
+        console.error("AQI ERROR:", err);
+        aqiError = true;
       }
 
-      // ======================
-      // 3) Weather API
-      // ======================
-      //   const weatherRes = await axios.get(
-      //     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode,cloudcover,precipitation,temperature_2m,relativehumidity_2m,windspeed_10m&forecast_hours=1`
-      //   );
+      // ============================
+      // 3) WEATHER
+      // ============================
       const weatherRes = await axios.get(
         `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
           `&hourly=weathercode,cloudcover,precipitation,temperature_2m,relativehumidity_2m,windspeed_10m&forecast_hours=1` +
           `&daily=weathercode,precipitation_sum,temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`
       );
+
       const daily = weatherRes.data.daily;
       let next7Days = "";
+
       for (let i = 0; i < daily.time.length; i++) {
         const date = daily.time[i].split("-").reverse().join("/");
-        const wCode = daily.weathercode[i];
-        const rain = daily.precipitation_sum[i];
-        const tMax = daily.temperature_2m_max[i];
-        const tMin = daily.temperature_2m_min[i];
-        const text = weatherTextMap[wCode] || "Không rõ";
-
-        next7Days += `• **${date}** – ${text} – ${tMax}°C / ${tMin}°C – ${rain}mm\n`;
+        const txt = weatherTextMap[daily.weathercode[i]] || "Không rõ";
+        next7Days += `• **${date}** – ${txt} – ${daily.temperature_2m_max[i]}°C / ${daily.temperature_2m_min[i]}°C – ${daily.precipitation_sum[i]}mm\n`;
       }
 
       const hourly = weatherRes.data.hourly;
 
       const weatherCode = hourly.weathercode?.[0];
-      const cloudCover = hourly.cloudcover?.[0];
-      const precipitation = hourly.precipitation?.[0];
-      const tempForecast = hourly.temperature_2m?.[0];
-      const humidityForecast = hourly.relativehumidity_2m?.[0];
-      const windForecast = hourly.windspeed_10m?.[0];
-
       const weatherText = weatherTextMap[weatherCode] || "Không rõ";
 
       const endTime = Date.now();
       const apiCallTime = endTime - startTime;
 
-      // ======================
-      // BUILD EMBED
-      // ======================
-      const embed = new EmbedBuilder()
-        .setColor(aqiError ? 0x999999 : getAqiInfo(aqiBlock.aqi).color)
-        .setTitle(`🌍 Khu vực bạn yêu cầu: ${originalInput}`);
+      // ============================
+      // EMBED
+      // ============================
+      const embed = new EmbedBuilder().setTitle(
+        `🌍 Khu vực: ${originalInput}`
+      );
 
-      let aqiTimeFormatted = "N/A";
-      if (!aqiError && aqiBlock.time && aqiBlock.time.s) {
-        // Định dạng lại thời gian từ "YYYY-MM-DD HH:mm:ss" thành "HH:mm - DD/MM/YYYY"
-        const [datePart, timePart] = aqiBlock.time.s.split(" ");
-        const [year, month, day] = datePart.split("-");
-        const [hour, minute] = timePart.split(":");
-        aqiTimeFormatted = `${hour}:${minute} - ${day}/${month}/${year}`;
-      }
+      if (!aqiError) embed.setColor(getAqiInfo(aqiBlock.aqi).color);
+      else embed.setColor(0x999999);
 
       embed.addFields([
         {
           name: "🌫 AQI",
           value: aqiError
-            ? "❌ Không có trạm AQI tại khu vực này."
-            : `${aqiBlock.aqi} – ${getAqiInfo(aqiBlock.aqi).description}`,
+            ? "Không có dữ liệu."
+            : `**${aqiBlock.aqi}** – ${
+                getAqiInfo(aqiBlock.aqi).description
+              } ${aqiNote ? `\n*${aqiNote}*` : ""}`,
         },
         {
           name: "📍 Trạm AQI",
           value: aqiError
-            ? "Không có dữ liệu."
-            : usedNearest
-            ? `Không có trạm tại vị trí này. Sử dụng trạm gần nhất:\n**${
-                aqiBlock.city.name
-              }** (cách ~${(aqiBlock.distance * 111).toFixed(1)} km)`
+            ? "Khu vực này không có trạm đo AQI."
             : aqiBlock.city.name,
         },
-        { name: "🕒 Cập nhật AQI lúc", value: aqiTimeFormatted },
-        { name: "🌦 Thời tiết", value: `${weatherCode} (${weatherText})` },
-        { name: "☁ Độ che phủ", value: `${cloudCover}%`, inline: true },
-        { name: "🌧 Lượng mưa", value: `${precipitation} mm`, inline: true },
         {
-          name: "🌡 Nhiệt độ (Dự báo)",
-          value: `${tempForecast}°C`,
+          name: "🕒 Cập nhật",
+          value:
+            aqiError || !aqiBlock.time?.s
+              ? "N/A"
+              : aqiBlock.time.s.replace(" ", " • "),
+        },
+        { name: "🌦 Thời tiết", value: weatherText },
+        {
+          name: "🌡 Nhiệt độ",
+          value: `${hourly.temperature_2m[0]}°C`,
           inline: true,
         },
         {
-          name: "💧 Độ ẩm (Dự báo)",
-          value: `${humidityForecast}%`,
+          name: "💧 Độ ẩm",
+          value: `${hourly.relativehumidity_2m[0]}%`,
           inline: true,
         },
         {
-          name: "💨 Tốc độ gió (Dự báo)",
-          value: `${windForecast} km/h`,
+          name: "💨 Gió",
+          value: `${hourly.windspeed_10m[0]} km/h`,
           inline: true,
         },
         {
-          name: "📅 Dự báo 7 ngày tới",
-          value: next7Days || "Không có dữ liệu.",
+          name: "📅 7 ngày tới",
+          value: next7Days,
         },
       ]);
 
       embed.setFooter({
-        text: `Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(
-          4
-        )} • API: ${apiCallTime}ms`,
+        text: `Lat: ${lat}, Lon: ${lon} • API: ${apiCallTime}ms`,
       });
+
       await sent.edit({ content: "", embeds: [embed] });
-    } catch (err) {
-      console.error(err);
-      await sent.edit("Có lỗi xảy ra khi lấy thông tin thời tiết.");
+
+    } catch (e) {
+      console.error(e);
+      sent.edit("⚠️ Lỗi khi xử lý request.");
     }
   },
 };
