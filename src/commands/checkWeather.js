@@ -216,9 +216,27 @@ module.exports = {
       // ======================
       // 3) Weather API
       // ======================
+      //   const weatherRes = await axios.get(
+      //     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode,cloudcover,precipitation,temperature_2m,relativehumidity_2m,windspeed_10m&forecast_hours=1`
+      //   );
       const weatherRes = await axios.get(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode,cloudcover,precipitation,temperature_2m,relativehumidity_2m,windspeed_10m&forecast_hours=1`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+          `&hourly=weathercode,cloudcover,precipitation,temperature_2m,relativehumidity_2m,windspeed_10m&forecast_hours=1` +
+          `&daily=weathercode,precipitation_sum,temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`
       );
+      const daily = weatherRes.data.daily;
+      let next7Days = "";
+      for (let i = 0; i < daily.time.length; i++) {
+        const date = daily.time[i].split("-").reverse().join("/");
+        const wCode = daily.weathercode[i];
+        const rain = daily.precipitation_sum[i];
+        const tMax = daily.temperature_2m_max[i];
+        const tMin = daily.temperature_2m_min[i];
+        const text = weatherTextMap[wCode] || "Không rõ";
+
+        next7Days += `• **${date}** – ${text} – ${tMax}°C / ${tMin}°C – ${rain}mm\n`;
+      }
+
       const hourly = weatherRes.data.hourly;
 
       const weatherCode = hourly.weathercode?.[0];
@@ -270,9 +288,25 @@ module.exports = {
         { name: "🌦 Thời tiết", value: `${weatherCode} (${weatherText})` },
         { name: "☁ Độ che phủ", value: `${cloudCover}%`, inline: true },
         { name: "🌧 Lượng mưa", value: `${precipitation} mm`, inline: true },
-        { name: "🌡 Nhiệt độ (Dự báo)", value: `${tempForecast}°C`, inline: true },
-        { name: "💧 Độ ẩm (Dự báo)", value: `${humidityForecast}%`, inline: true },
-        { name: "💨 Tốc độ gió (Dự báo)", value: `${windForecast} km/h`, inline: true },
+        {
+          name: "🌡 Nhiệt độ (Dự báo)",
+          value: `${tempForecast}°C`,
+          inline: true,
+        },
+        {
+          name: "💧 Độ ẩm (Dự báo)",
+          value: `${humidityForecast}%`,
+          inline: true,
+        },
+        {
+          name: "💨 Tốc độ gió (Dự báo)",
+          value: `${windForecast} km/h`,
+          inline: true,
+        },
+        {
+          name: "📅 Dự báo 7 ngày tới",
+          value: next7Days || "Không có dữ liệu.",
+        },
       ]);
 
       embed.setFooter({
