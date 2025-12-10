@@ -12,12 +12,17 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@discordjs/voice": "^0.19.0",
+    "@snazzah/davey": "^0.1.8",
     "axios": "^1.13.2",
     "cheerio": "^1.1.2",
     "cron": "^4.3.5",
     "discord.js": "^14.15.1",
     "dotenv": "^16.6.1",
     "node-cron": "^4.2.1",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "play-dl": "^1.9.7",
+    "yt-search": "^2.13.1",
+    "ytdl-core": "^4.11.5"
   }
 }

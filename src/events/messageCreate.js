@@ -15,7 +15,7 @@ module.exports = {
         if (!command) return;
 
         try {
-            await command.execute(message, args);
+            await command.execute(message, args, client);
         } catch (error) {
             console.error(`Lỗi khi chạy lệnh (message) "${commandName}":`, error);
             await message.reply('Đã xảy ra lỗi khi chạy lệnh này!');

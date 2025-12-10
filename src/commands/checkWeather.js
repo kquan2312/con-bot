@@ -12,6 +12,9 @@ const provinceAlias = {
   "nghệ an": "Vinh",
   "nghe-an": "Vinh",
   "nghệ-an": "Vinh",
+  "ha noi": "Hanoi",
+  "hà nội": "Hanoi",
+  hn: "Hanoi",
   "dak lak": "Buon Ma Thuot",
   "đắk lắk": "Buon Ma Thuot",
   "đăk lăk": "Buon Ma Thuot",
@@ -137,8 +140,14 @@ module.exports = {
         return sent.edit(`❌ Không tìm thấy địa điểm: **${originalInput}**`);
 
       const place = geoRes.data.results[0];
+      console.log(`Vị trí người dùng nhập: ${originalInput}`);
+      console.log(
+        "📍 Vị trí được chọn:",
+        JSON.stringify(place, null, 2)
+      );
       const lat = place.latitude;
       const lon = place.longitude;
+      const countryCode = place.country_code;
 
       // ============================
       // 2) **AQI MỚI – SEARCH THEO TÊN TỈNH**
@@ -153,11 +162,18 @@ module.exports = {
             location
           )}&token=${WEATHER_API_TOKEN}`
         );
+        
+        // Lọc kết quả để chỉ lấy các trạm ở đúng quốc gia
+        const station = searchRes.data.data.find(
+          (s) => s.station?.country?.substring(0, 2) === countryCode
+        );
 
-        if (!searchRes.data.data || searchRes.data.data.length === 0) {
+        if (!station) {
+          aqiError = true;
+        } else if (!searchRes.data.data || searchRes.data.data.length === 0) {
           aqiError = true;
         } else {
-          const uid = searchRes.data.data[0].uid;
+          const uid = station.uid;
 
           const feedRes = await axios.get(
             `https://api.waqi.info/feed/@${uid}/?token=${WEATHER_API_TOKEN}`

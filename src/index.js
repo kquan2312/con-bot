@@ -11,6 +11,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages, // Thêm quyền đọc tin nhắn trong server
         GatewayIntentBits.MessageContent, // Thêm quyền đọc nội dung tin nhắn
+         GatewayIntentBits.GuildVoiceStates, // thêm dòng này
+        GatewayIntentBits.GuildMembers,     // nên thêm để log join/leave server
     ] 
 });
 client.commands = new Collection();
@@ -49,5 +51,6 @@ cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi 
         checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
     }
 });
+
 
 client.login(process.env.BOT_TOKEN);
