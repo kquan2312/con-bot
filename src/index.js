@@ -51,6 +51,8 @@ cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi 
         checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
     }
 });
+const startServer = require('./Backend/server.js'); // Đường dẫn trỏ tới file vừa tạo
+startServer();
 
 
 client.login(process.env.BOT_TOKEN);
