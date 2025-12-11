@@ -1,32 +1,89 @@
 const { SlashCommandBuilder } = require("discord.js");
-require("dotenv").config();
-const PORT = 5053;
-
-const play = require("play-dl");
-
-// FFmpeg từ ffmpeg-static
-try {
-  const ffmpegPath = require("ffmpeg-static");
-  process.env.FFMPEG_PATH = ffmpegPath;
-} catch (e) {
-  console.warn("⚠️ Chưa cài ffmpeg-static");
-}
-
+const axios = require("axios");
 const {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
-  getVoiceConnection,
 } = require("@discordjs/voice");
+const { getMusicController, guildPlayers } = require("../utils/playerManager");
 
+const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:5053";
+const INACTIVITY_TIMEOUT_MS = 60 * 1000; // 60 seconds
+
+// =====================
+// Inactivity Timeout
+// =====================
+function startInactivityTimer(guildId) {
+  const controller = getMusicController(guildId);
+  // Clear any existing timer
+  if (controller.inactivityTimer) {
+    clearTimeout(controller.inactivityTimer);
+  }
+  controller.inactivityTimer = setTimeout(() => {
+    const currentController = getMusicController(guildId);
+    // Only disconnect if nothing is playing and a connection exists
+    if (!currentController.isPlaying && currentController.connection) {
+      console.log(`[${guildId}] Inactivity timeout: Disconnecting.`);
+      currentController.connection.destroy();
+      guildPlayers.delete(guildId); // Clean up the player state
+    }
+  }, INACTIVITY_TIMEOUT_MS);
+}
+
+// =====================
+// Play bài tiếp theo trong queue
+// =====================
+async function playNextInQueue(guildId) {
+  const controller = getMusicController(guildId);
+  // Clear inactivity timer since we are trying to play something
+  if (controller.inactivityTimer) clearTimeout(controller.inactivityTimer);
+
+  if (!controller.queue.length || controller.isPlaying || !controller.connection) {
+    if (!controller.queue.length && !controller.isPlaying) {
+      startInactivityTimer(guildId); // Start timer if queue is empty
+    }
+    return;
+  }
+
+  controller.isPlaying = true;
+  const song = controller.queue[0];
+  const proxyUrl = `${BACKEND_URL}/proxy-audio?url=${encodeURIComponent(song.query)}`;
+  const resource = createAudioResource(proxyUrl);
+
+  if (!controller.player) {
+    controller.player = createAudioPlayer();
+
+    controller.player.on(AudioPlayerStatus.Idle, () => {
+      controller.queue.shift();
+      controller.isPlaying = false;
+      // After a song finishes, try to play the next one or start the inactivity timer
+      playNextInQueue(guildId);
+    });
+
+    controller.player.on("error", (error) => {
+      console.error(`[${guildId}] Player Error:`, error.message);
+      controller.queue.shift();
+      controller.isPlaying = false;
+      // On error, try to play the next one or start the inactivity timer
+      playNextInQueue(guildId);
+    });
+
+    controller.connection.subscribe(controller.player);
+  }
+
+  controller.player.play(resource);
+}
+
+// =====================
+// Command handler
+// =====================
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("p")
-    .setDescription("Phát nhạc từ YouTube")
-    .addStringOption((opt) =>
-      opt
-        .setName("query")
+    .setDescription("Phát nhạc từ SoundCloud (hỗ trợ link YT để tìm)")
+    .addStringOption(opt =>
+      opt.setName("query")
         .setDescription("Tên bài hoặc link YouTube")
         .setRequired(true)
     ),
@@ -35,128 +92,54 @@ module.exports = {
   async execute(messageOrInteraction, args = [], client) {
     const isSlash = messageOrInteraction.isChatInputCommand?.();
     const guild = messageOrInteraction.guild;
+    const guildId = guild.id;
     const member = messageOrInteraction.member;
+    const textChannel = messageOrInteraction.channel;
+
     const query = isSlash
       ? messageOrInteraction.options.getString("query")
       : args.join(" ");
 
-    const reply = async (msg) => {
-      if (isSlash) {
-        if (messageOrInteraction.replied || messageOrInteraction.deferred)
-          return messageOrInteraction.followUp(msg);
-        return messageOrInteraction.reply(msg);
-      }
-      return messageOrInteraction.reply(msg);
-    };
-
-    console.log("══════════════════════════════════");
-    console.log(`📥 NEW REQUEST at ${new Date().toLocaleString()}`);
-    console.log(`👤 User: ${member.user.tag}`);
-    console.log(`🔎 Query input:`, query);
-    console.log("══════════════════════════════════");
+    let reply;
+    if (isSlash) {
+      await messageOrInteraction.deferReply();
+      reply = msg => messageOrInteraction.followUp(msg);
+    } else {
+      reply = msg => messageOrInteraction.reply(msg);
+    }
 
     if (!query) return reply("Nhập tên bài hoặc link đi bro 😭");
     if (!member.voice.channel) return reply("Vào voice trước bro 😎");
 
-    const existingConn = getVoiceConnection(guild.id);
-    if (existingConn) {
-      return reply("Bot đang phát bài khác rồi bro!");
-    }
+    const controller = getMusicController(guildId);
+    controller.textChannel = textChannel;
 
-    try {
-      let url = query;
-
-      // STEP 1 — Validate or Search
-      console.log("🔍 Step 1: Check URL or Search");
-
-      if (play.yt_validate(query) !== "video") {
-        console.log("❌ Không phải URL, search…");
-
-        const results = await play.search(query, { limit: 1 });
-        if (!results || results.length === 0) {
-          return reply("Không tìm thấy bài này 😭");
-        }
-
-        url = results[0].url;
-      }
-
-      console.log("🎯 Final URL:", url);
-
-      // STEP 2 — Get info
-      console.log("🔎 Step 2: Lấy video info…");
-
-      const info = await play.video_info(url);
-      const title = info.video_details.title;
-
-      console.log("📌 Video title:", title);
-      console.log("📌 Duration:", info.video_details.durationInSec, "sec");
-
-      // STEP 3 — Lấy audio-only stream
-      console.log("🎧 Step 3: Lấy audio-only stream…");
-
-      let audioStreams = info.format.filter(
-        (f) => f.has_audio && !f.has_video && f.url
-      );
-
-      if (!audioStreams.length) {
-        audioStreams = info.format.filter((f) => f.has_audio && f.url);
-      }
-
-      if (!audioStreams || audioStreams.length === 0) {
-        console.log("❌ Không có audio-only stream");
-        return reply("Không lấy được audio-only stream 😭");
-      }
-
-      const audioStream = audioStreams[audioStreams.length - 1];
-      const streamUrl = audioStream.url;
-
-      console.log("🎵 Audio Stream URL:", streamUrl);
-
-      // STEP 4 — Build Proxy URL
-      const proxyUrl = `http://127.0.0.1:${PORT}/proxy-audio?url=${encodeURIComponent(
-        streamUrl
-      )}`;
-
-      console.log("🔗 Proxy URL:", proxyUrl);
-
-      const resource = createAudioResource(proxyUrl);
-
-      // STEP 5 — Join Voice
-      console.log("🔊 Step 4: Join VC");
-
-      const connection = joinVoiceChannel({
+    if (!controller.connection || controller.connection.state.status === 'destroyed') {
+      controller.connection = joinVoiceChannel({
         channelId: member.voice.channel.id,
-        guildId: guild.id,
+        guildId,
         adapterCreator: guild.voiceAdapterCreator,
       });
 
-      // Player
-      console.log("▶ Step 5: Play audio");
-
-      const player = createAudioPlayer();
-      connection.subscribe(player);
-      player.play(resource);
-
-      await reply(`🎶 Đang phát: **${title}**`);
-
-      // Auto disconnect
-      player.on(AudioPlayerStatus.Idle, () => {
-        console.log("⏹ Player idle → destroy connection");
-        if (connection.state.status !== "destroyed") connection.destroy();
+      controller.connection.on('stateChange', (oldState, newState) => {
+        if (newState.status === 'destroyed') {
+          guildPlayers.delete(guildId);
+        }
       });
-
-      player.on("error", (err) => {
-        console.log("🔥 Player ERROR:", err);
-        if (connection.state.status !== "destroyed") connection.destroy();
-      });
-    } catch (err) {
-      console.log("🔥🔥🔥 FATAL ERROR 🔥🔥🔥");
-      console.error(err);
-
-      const conn = getVoiceConnection(guild.id);
-      if (conn) conn.destroy();
-
-      reply("Có lỗi khi phát nhạc 😭");
     }
+
+    // Thêm bài vào queue
+    const song = {
+      title: query, // title = query (YT link hoặc tên bài)
+      query,       // gửi thẳng query cho backend search
+      requestedBy: member.user.tag,
+    };
+    controller.queue.push(song);
+
+    // If a song is added, we are active, so clear any pending inactivity timer
+    if (controller.inactivityTimer) clearTimeout(controller.inactivityTimer);
+
+    await reply(`✅ Đã thêm vào hàng đợi: **${song.title}**`);
+    playNextInQueue(guildId);
   },
 };

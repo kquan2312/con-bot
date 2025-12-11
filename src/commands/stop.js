@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require("discord.js");
 const { getVoiceConnection } = require("@discordjs/voice");
+const { guildPlayers } = require("../utils/playerManager");
 
 module.exports = {
     // ---- SLASH COMMAND ----
@@ -31,6 +32,9 @@ module.exports = {
 
         if (!connection)
             return reply("Bot có bật nhạc đâu bro 😭");
+
+        // Dọn dẹp controller của guild
+        guildPlayers.delete(guild.id);
 
         connection.destroy();
 
