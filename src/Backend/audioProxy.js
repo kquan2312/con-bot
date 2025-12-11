@@ -81,6 +81,17 @@ router.get("/proxy-audio", async (req, res) => {
     // Thiết lập header để client biết đây là stream audio
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Accept-Ranges", "none"); // Thông báo cho client rằng chúng ta không hỗ trợ range requests
+
+    // Xử lý lỗi và đóng kết nối
+    req.on('close', () => {
+      console.log('Client disconnected, stopping stream pipe.');
+      audioStream.destroy();
+    });
+    audioStream.on('error', (streamErr) => {
+      console.error('Audio stream error:', streamErr.message);
+      if (!res.headersSent) res.status(500).send('Lỗi stream audio.');
+    });
+
     audioStream.pipe(res);
 
   } catch (err) {
