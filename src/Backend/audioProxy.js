@@ -1,6 +1,4 @@
 const express = require("express");
-const axios = require("axios");
-require("dotenv").config();
 const scdl = require("soundcloud-downloader").default;
 const { YoutubeSearchApi } = require("youtube-search-api");
 
@@ -14,7 +12,9 @@ function isYouTubeLink(url) {
 // Lấy title từ YouTube link
 async function getYouTubeTitle(url) {
   try {
-    const videoId = url.split("v=")[1] || url.split("youtu.be/")[1];
+    const videoId = url.includes("v=")
+      ? url.split("v=")[1].split("&")[0]
+      : url.split("youtu.be/")[1].split("?")[0];
     const result = await YoutubeSearchApi.GetVideoById(videoId);
     return result?.title || null;
   } catch {
@@ -22,14 +22,39 @@ async function getYouTubeTitle(url) {
   }
 }
 
-// Tìm kiếm SoundCloud theo từ khóa và trả về stream
+// Lấy stream trực tiếp từ SoundCloud URL
+async function getSoundCloudStream(url) {
+  // Dùng scdl.download để tự động chọn format (ưu tiên progressive) và tránh lỗi object mismatch
+  return await scdl.download(url);
+}
+
+// Tìm kiếm SoundCloud theo keyword và lấy stream
+// async function getSoundCloudStreamFromKeyword(keyword) {
+//   const tracks = await scdl.search({ query: keyword, resourceType: "tracks" });
+//   if (!tracks?.collection?.length) return null;
+//   const track = tracks.collection[0];
+//   return await getSoundCloudStream(track.permalink_url);
+// }
 async function getSoundCloudStreamFromKeyword(keyword) {
   const tracks = await scdl.search({ query: keyword, resourceType: "tracks" });
   if (!tracks?.collection?.length) return null;
-  const track = tracks.collection[0];
-  // Sử dụng scdl.download để lấy stream trực tiếp, ổn định hơn
-  const stream = await scdl.download(track.permalink_url);
-  return stream;
+
+  // Loop qua từng track cho tới khi tìm được track stream được
+  for (const track of tracks.collection) {
+    try {
+      const stream = await getSoundCloudStream(track.permalink_url);
+      console.log(`🔊 Streaming track: ${track.title} | ${track.permalink_url}`);
+      return stream; // trả về stream đầu tiên thành công
+    } catch (err) {
+      console.warn(
+        `⚠️ Không thể stream track: ${track.title} | ${track.permalink_url} → ${err.message}`
+      );
+      // thử track tiếp theo
+    }
+  }
+
+  // Nếu hết tracks vẫn không stream được
+  return null;
 }
 
 router.get("/proxy-audio", async (req, res) => {
@@ -39,13 +64,6 @@ router.get("/proxy-audio", async (req, res) => {
   url = decodeURIComponent(url);
   console.log(`🔗 Input: ${url}`);
 
-  // Xử lý Range-Request từ discord.js/voice để tránh vòng lặp
-  // Nếu client yêu cầu một phần của file, ta sẽ báo là không hỗ trợ
-  // và chỉ stream từ đầu. Điều này ngăn client request lại liên tục.
-  if (req.headers.range && req.headers.range !== 'bytes=0-') {
-    return res.status(416).send('Range Not Satisfiable. This proxy only supports streaming from the beginning.');
-  }
-
   try {
     let audioStream;
 
@@ -54,23 +72,22 @@ router.get("/proxy-audio", async (req, res) => {
       if (!title) return res.status(404).send("Không lấy được title YouTube");
       console.log(`🔍 Searching SoundCloud for: ${title}`);
       audioStream = await getSoundCloudStreamFromKeyword(title);
-      if (!audioStream) return res.status(404).send("Không tìm thấy bài hát tương ứng trên SoundCloud");
+      if (!audioStream) return res.status(404).send("Không tìm thấy bài hát trên SoundCloud");
     } else if (scdl.isValidUrl(url)) {
-      // Là link SoundCloud -> tải trực tiếp
-      console.log(`🔊 Downloading from SoundCloud URL: ${url}`);
-      audioStream = await scdl.download(url);
-    } else if (url.startsWith("http")) {
-      // Là một link khác (có thể là link stream trực tiếp)
-      console.log(`🎵 Streaming directly from URL: ${url.substring(0, 80)}...`);
-      const response = await axios({
-        method: "GET",
-        url: url,
-        responseType: "stream",
-        headers: { 'Range': req.headers.range || 'bytes=0-' },
-      });
-      audioStream = response.data;
+      console.log(`🔊 Streaming directly from SoundCloud URL: ${url}`);
+      try {
+        audioStream = await getSoundCloudStream(url); // stream nguyên bài
+      } catch (err) {
+        console.warn(`⚠️ Direct stream failed: ${err.message}. Attempting fallback search...`);
+        const slug = url.split("?")[0].split("/").filter(Boolean).pop();
+        if (slug) {
+          const keyword = slug.replace(/-/g, " ");
+          console.log(`🔍 Fallback searching for: ${keyword}`);
+          audioStream = await getSoundCloudStreamFromKeyword(keyword);
+        }
+        if (!audioStream) return res.status(404).send("Không tìm thấy bài hát trên SoundCloud (Fallback failed)");
+      }
     } else {
-      // Là từ khóa tìm kiếm
       console.log(`🔍 Searching SoundCloud for: ${url}`);
       audioStream = await getSoundCloudStreamFromKeyword(url);
       if (!audioStream) return res.status(404).send("Không tìm thấy bài hát trên SoundCloud");
@@ -78,22 +95,18 @@ router.get("/proxy-audio", async (req, res) => {
 
     console.log(`🎵 Streaming audio to client...`);
 
-    // Thiết lập header để client biết đây là stream audio
     res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Accept-Ranges", "none"); // Thông báo cho client rằng chúng ta không hỗ trợ range requests
 
-    // Xử lý lỗi và đóng kết nối
-    req.on('close', () => {
-      console.log('Client disconnected, stopping stream pipe.');
-      audioStream.destroy();
+    req.on("close", () => {
+      if (audioStream) audioStream.destroy();
     });
-    audioStream.on('error', (streamErr) => {
-      console.error('Audio stream error:', streamErr.message);
-      if (!res.headersSent) res.status(500).send('Lỗi stream audio.');
+
+    audioStream.on("error", (err) => {
+      console.error("Audio stream error:", err.message);
+      if (!res.headersSent) res.status(500).send("Lỗi khi stream audio");
     });
 
     audioStream.pipe(res);
-
   } catch (err) {
     console.error("Proxy Error:", err.message);
     if (!res.headersSent) res.status(500).send("Không thể stream audio.");
@@ -101,4 +114,3 @@ router.get("/proxy-audio", async (req, res) => {
 });
 
 module.exports = router;
-// Nếu là YouTube link hoặc text query → tìm trên SoundCloud
