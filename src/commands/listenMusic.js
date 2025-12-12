@@ -147,7 +147,23 @@ module.exports = {
     try {
       let trackUrl, title, streamUrl;
 
-      if (query.startsWith("https://soundcloud.com/")) {
+      if (scdl.isPlaylistURL(query)) {
+        const playlist = await scdl.getSetInfo(query);
+        const tracks = playlist.tracks;
+        if (!tracks || !tracks.length) return reply("Playlist rỗng hoặc lỗi 😭");
+
+        const newSongs = tracks.map((t) => ({
+          title: t.title,
+          url: t.permalink_url,
+          streamUrl: t.permalink_url,
+          requestedBy: member.user.tag,
+        }));
+
+        controller.queue.push(...newSongs);
+        await reply(`✅ Đã thêm **${newSongs.length}** bài từ playlist **${playlist.title}** vào hàng đợi!`);
+        if (!controller.isPlaying) playNextInQueue(guildId);
+        return;
+      } else if (query.startsWith("https://soundcloud.com/")) {
         trackUrl = query;
         title = query.split("/").pop(); // fallback
         streamUrl = trackUrl;
