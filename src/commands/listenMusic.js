@@ -16,6 +16,7 @@ const { getMusicController, guildPlayers } = require("../utils/playerManager");
 // Config
 // -----------------------------------------------------------------------------
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:5053";
+const RAILWAY_STATIC_URL = process.env.RAILWAY_STATIC_URL ;
 const SC_CLIENT_ID = process.env.SOUND_CLOUD_CLIENT_ID;
 
 // -----------------------------------------------------------------------------
@@ -50,7 +51,9 @@ async function playNextInQueue(guildId) {
     console.log(`[${guildId}] 🔊 Streaming: ${song.title}`);
 
     // Proxy backend
-    const proxyUrl = `${BACKEND_URL}/proxy-audio?url=${encodeURIComponent(song.streamUrl)}`;
+    // const proxyUrl = `${BACKEND_URL}/proxy-audio?url=${encodeURIComponent(song.streamUrl)}`;
+    const proxyUrl = `${RAILWAY_STATIC_URL}/proxy-audio?url=${encodeURIComponent(song.streamUrl)}`;
+    // 
     const resource = createAudioResource(proxyUrl, {
       inlineVolume: true
     });
