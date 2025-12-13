@@ -5,6 +5,7 @@ require('dotenv').config();
 const audioProxyRouter = require('./audioProxy'); // Import router từ audioProxy.js
 const app = express();
 const PORT = process.env.PORT || 5053;
+const HOST = process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`;
 
 // Middleware để parse JSON nếu sau này bạn muốn gửi data lên
 app.use(express.json());
@@ -29,7 +30,8 @@ app.use(audioProxyRouter);
 function startServer() {
     app.listen(PORT, () => {
         console.log(`══════════════════════════════════`);
-        console.log(`🌐 Backend Service running on http://localhost:${PORT}`);
+        console.log(`🌐 Backend Service running on ${HOST}`);
+        console.log(`🚀 Environment: ${process.env.NODE_ENV || 'local'}`);
         console.log(`══════════════════════════════════`);
     });
 }
