@@ -1,6 +1,21 @@
 const { SlashCommandBuilder } = require('discord.js');
 const Groq = require("groq-sdk");
 require("dotenv").config();
+function splitText(text, max = 2000) {
+  const chunks = [];
+  let current = '';
+
+  for (const line of text.split('\n')) {
+    if ((current + line).length > max) {
+      chunks.push(current);
+      current = '';
+    }
+    current += line + '\n';
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const sessions = {};
@@ -55,10 +70,19 @@ module.exports = {
     // push câu trả lời để giữ context
     sessions[userId].push({ role: "assistant", content: reply });
 
-    if (isInteraction) {
-      await interaction.editReply(reply);
-    } else {
-      await interaction.reply(reply);
-    }
+    const parts = splitText(reply);
+
+if (isInteraction) {
+  await interaction.editReply(parts.shift());
+  for (const part of parts) {
+    await interaction.followUp(part);
+  }
+} else {
+  for (const part of parts) {
+    await interaction.channel.send(part);
+  }
+}
+
   },
+  
 };
