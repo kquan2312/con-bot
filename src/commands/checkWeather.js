@@ -1,8 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const axios = require("axios");
 
-const WEATHER_API_TOKEN =
-  process.env.WEATHER_API_TOKEN || "YOUR_WAQI_TOKEN";
+const WEATHER_API_TOKEN = process.env.WEATHER_API_TOKEN || "YOUR_WAQI_TOKEN";
 
 const MAX_AQI_AGE_HOURS = 6; // AQI quá 6h coi như hết hạn
 const MAX_DISTANCE_KM = 60; // bán kính lấy trạm AQI
@@ -56,7 +55,10 @@ function getAqiInfo(aqi) {
   if (v <= 50) return { color: 0x00e400, description: "Tốt" };
   if (v <= 100) return { color: 0xffff00, description: "Trung bình" };
   if (v <= 150)
-    return { color: 0xff7e00, description: "Không lành mạnh cho nhóm nhạy cảm" };
+    return {
+      color: 0xff7e00,
+      description: "Không lành mạnh cho nhóm nhạy cảm",
+    };
   if (v <= 200) return { color: 0xff0000, description: "Không lành mạnh" };
   if (v <= 300) return { color: 0x8f3f97, description: "Rất không lành mạnh" };
   return { color: 0x7e0023, description: "Nguy hiểm" };
@@ -104,7 +106,7 @@ module.exports = {
       const args = interactionOrMessage.content.trim().split(/\s+/);
       location = args.slice(1).join(" ");
     }
-
+  
     const sent = await interactionOrMessage.reply({
       content: `🔍 Đang tìm **${location}**...`,
       fetchReply: true,
@@ -130,6 +132,8 @@ module.exports = {
         return sent.edit(`❌ Không tìm thấy địa điểm **${originalInput}**`);
 
       const place = geoRes.data.results[0];
+      console.log(`Vị trí người dùng nhập: ${originalInput}`);
+      console.log('📍 Vị trí được chọn:', JSON.stringify(place, null, 2));
       const lat = place.latitude;
       const lon = place.longitude;
 
@@ -138,6 +142,7 @@ module.exports = {
       // ============================
       let aqiBlock = null;
       let aqiError = false;
+      let aqiLevelNote = null; // 👈 THÊM DÒNG NÀY
 
       try {
         const mapRes = await axios.get(
@@ -152,10 +157,10 @@ module.exports = {
             uid: s.uid,
             lat: s.lat,
             lon: s.lon,
-            distance: getDistanceKm(lat, lon, s.lat, s.lon),
+            _distanceKm: getDistanceKm(lat, lon, s.lat, s.lon),
           }))
-          .filter((s) => s.distance <= MAX_DISTANCE_KM)
-          .sort((a, b) => a.distance - b.distance)
+          .filter((s) => s._distanceKm <= MAX_DISTANCE_KM)
+          .sort((a, b) => a._distanceKm - b._distanceKm)
           .slice(0, 5);
 
         const feeds = await Promise.all(
@@ -172,7 +177,12 @@ module.exports = {
               const ageHours = (Date.now() - timeValue) / 36e5;
               if (ageHours > MAX_AQI_AGE_HOURS) return null;
 
-              return { ...data, _timeValue: timeValue, _ageHours: ageHours };
+              return {
+                ...data,
+                _timeValue: timeValue,
+                _ageHours: ageHours,
+                _distanceKm: s._distanceKm, // 👈 QUAN TRỌNG
+              };
             } catch {
               return null;
             }
@@ -184,6 +194,21 @@ module.exports = {
         else {
           validFeeds.sort((a, b) => b._timeValue - a._timeValue);
           aqiBlock = validFeeds[0];
+          let aqiLevelNote = null;
+
+          if (
+            typeof aqiBlock._distanceKm === "number" &&
+            aqiBlock._distanceKm > 30 &&
+            aqiBlock._distanceKm <= MAX_DISTANCE_KM
+          ) {
+            aqiLevelNote = `⚠ AQI tham chiếu (~${aqiBlock._distanceKm.toFixed(
+              1
+            )} km)`;
+          }
+
+          if (aqiBlock._distanceKm > MAX_DISTANCE_KM) {
+            aqiError = true;
+          }
         }
       } catch {
         aqiError = true;
@@ -214,33 +239,52 @@ module.exports = {
       // ============================
       const embed = new EmbedBuilder().setTitle(`🌍 Khu vực: ${originalInput}`);
 
-      embed.setColor(
-        aqiError ? 0x999999 : getAqiInfo(aqiBlock.aqi).color
-      );
+      embed.setColor(aqiError ? 0x999999 : getAqiInfo(aqiBlock.aqi).color);
 
       embed.addFields([
-        {
-          name: "🌫 AQI",
-          value: aqiError
-            ? "Không có dữ liệu AQI realtime."
-            : `**${aqiBlock.aqi}** – ${getAqiInfo(aqiBlock.aqi).description}`,
-        },
-        {
-          name: "📍 Trạm AQI",
-          value: aqiError ? "N/A" : aqiBlock.city.name,
-        },
-        {
-          name: "🕒 Cập nhật",
-          value: aqiError
-            ? "N/A"
-            : aqiBlock.time.s.replace(" ", " • "),
-        },
-        { name: "🌦 Thời tiết", value: weatherText },
-        { name: "🌡 Nhiệt độ", value: `${hourly.temperature_2m[0]}°C`, inline: true },
-        { name: "💧 Độ ẩm", value: `${hourly.relativehumidity_2m[0]}%`, inline: true },
-        { name: "💨 Gió", value: `${hourly.windspeed_10m[0]} km/h`, inline: true },
-        { name: "📅 7 ngày tới", value: next7Days },
-      ]);
+  {
+    name: "🌫 AQI",
+    value: aqiError
+      ? "Không có dữ liệu AQI realtime."
+      : `**${aqiBlock.aqi}** – ${getAqiInfo(aqiBlock.aqi).description}`,
+  },
+  {
+    name: "📍 Trạm AQI",
+    value: aqiError
+      ? "N/A"
+      : `${aqiBlock.city.name}${
+          typeof aqiBlock._distanceKm === "number"
+            ? ` (~${aqiBlock._distanceKm.toFixed(1)} km)`
+            : ""
+        }`,
+  },
+  {
+    name: "🕒 Cập nhật",
+    value: aqiError
+      ? "N/A"
+      : aqiBlock.time?.s
+      ? aqiBlock.time.s.replace(" ", " • ")
+      : "N/A",
+  },
+  { name: "🌦 Thời tiết", value: weatherText },
+  {
+    name: "🌡 Nhiệt độ",
+    value: `${hourly.temperature_2m[0]}°C`,
+    inline: true,
+  },
+  {
+    name: "💧 Độ ẩm",
+    value: `${hourly.relativehumidity_2m[0]}%`,
+    inline: true,
+  },
+  {
+    name: "💨 Gió",
+    value: `${hourly.windspeed_10m[0]} km/h`,
+    inline: true,
+  },
+  { name: "📅 7 ngày tới", value: next7Days },
+]);
+
 
       embed.setFooter({
         text: `Lat: ${lat}, Lon: ${lon} • API: ${Date.now() - startTime}ms`,
