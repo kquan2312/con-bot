@@ -39,13 +39,25 @@ for (const file of eventFiles) {
 const startServer = require('./Backend/server.js');
 startServer();
 
-// Bot ready
+// =====================
+// READY event
+// =====================
 client.once('ready', async () => {
     console.log(`🌟 Ready! Logged in as ${client.user.tag}`);
 
-    // =====================
+    // ---------------------
+    // TEST cron ngay sau deploy
+    // ---------------------
+    await runWeatherCron();
+
+    // ---------------------
+    // Cron chính checkWeather 7h/16h/21h
+    // ---------------------
+    cron.schedule('0 7,16,21 * * *', runWeatherCron, { timezone: 'Asia/Ho_Chi_Minh' });
+
+    // ---------------------
     // Cron check patch 11h
-    // =====================
+    // ---------------------
     const checkUpdateCommand = client.commands.get('checkupdate');
     cron.schedule('0 11 * * *', async () => {
         console.log(`[${new Date().toLocaleString()}] Running cron job to check for patch update...`);
@@ -55,31 +67,31 @@ client.once('ready', async () => {
             checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
         }
     }, { timezone: 'Asia/Ho_Chi_Minh' });
-
-    // =====================
-    // Cron checkWeather 7h,16h,21h
-    // =====================
-    cron.schedule('0 7,16,21 * * *', async () => {
-        console.log(`[${new Date().toLocaleString()}] Cron: !checkWeather hanoi`);
-
-        const channel = await client.channels.fetch(process.env.CHANNEL_ID).catch(console.error);
-        if (!channel) return console.log('Channel not found');
-
-        // Fake message giống user gửi
-        const fakeMessage = {
-            content: `${prefix}checkWeather hanoi`,
-            author: client.user, // bot tự gửi
-            channel,
-            guild: channel.guild,
-            isCron: true,
-            reply: (msg) => channel.send(msg),
-        };
-
-        // Gọi event messageCreate
-        const event = client.listeners(Events.MessageCreate)[0];
-        if (event) event(fakeMessage);
-    }, { timezone: 'Asia/Ho_Chi_Minh' });
 });
 
+// =====================
+// Function chạy cron checkWeather
+// =====================
+async function runWeatherCron() {
+    console.log(`[${new Date().toLocaleString()}] Cron: !checkWeather hanoi`);
+
+    const channel = await client.channels.fetch(process.env.CHANNEL_ID).catch(console.error);
+    if (!channel) return console.log('Channel not found');
+
+    const fakeMessage = {
+        content: `${prefix}checkWeather hanoi`,
+        author: client.user, // bot tự gửi
+        channel,
+        guild: channel.guild,
+        isCron: true,
+        reply: (msg) => channel.send(msg),
+    };
+
+    const event = client.listeners(Events.MessageCreate)[0];
+    if (event) event(fakeMessage);
+}
+
+// =====================
 // Login bot
+// =====================
 client.login(process.env.BOT_TOKEN);
