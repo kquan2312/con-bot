@@ -73,22 +73,38 @@ client.once('ready', async () => {
 // Function chạy cron checkWeather
 // =====================
 async function runWeatherCron() {
-    console.log(`[${new Date().toLocaleString()}] Cron: !checkWeather hanoi`);
+    const commandName = 'checkweather';
+    const command = client.commands.get(commandName);
+
+    if (!command) {
+        console.error(`[Cron Error] Command '${commandName}' not found.`);
+        return;
+    }
+    
+    console.log(`[${new Date().toLocaleString()}] Cron: Running '${commandName}' for 'hanoi'.`);
 
     const channel = await client.channels.fetch(process.env.CHANNEL_ID).catch(console.error);
-    if (!channel) return console.log('Channel not found');
+    if (!channel) {
+        console.error('[Cron Error] Channel not found for weather cron.');
+        return;
+    }
 
-    const fakeMessage = {
+    // Tạo một đối tượng message giả để truyền vào hàm execute của command
+    // Lệnh checkWeather của bạn hỗ trợ cả slash và prefix, ta sẽ giả lập prefix command
+    const mockMessage = {
         content: `${prefix}checkWeather hanoi`,
-        author: client.user, // bot tự gửi
+        author: client.user,
         channel,
         guild: channel.guild,
-        isCron: true,
-        reply: (msg) => channel.send(msg),
+        reply: (options) => channel.send(options), // Lệnh checkWeather dùng reply, nên ta trỏ nó tới channel.send
     };
 
-    const event = client.listeners(Events.MessageCreate)[0];
-    if (event) event(fakeMessage);
+    try {
+        await command.execute(mockMessage);
+    } catch (error) {
+        console.error(`[Cron Error] Error executing '${commandName}':`, error);
+        channel.send(`Đã có lỗi xảy ra khi chạy cron job cho lệnh \`${commandName}\`.`);
+    }
 }
 
 // =====================
