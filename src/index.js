@@ -42,7 +42,6 @@ cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi 
     // Thêm log để dễ dàng theo dõi
     const logMessage = `[${new Date().toLocaleString()}] Running cron job to check for patch update...`;
     console.log(logMessage);
-
     // Gửi tin nhắn đến channel khi cron job bắt đầu
     const channel = client.channels.cache.get(process.env.CHANNEL_ID);
     if (channel) { // Gửi tin nhắn "Đang kiểm tra..." và lấy đối tượng message
@@ -51,6 +50,35 @@ cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi 
         checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
     }
 });
+const checkUpdateWeather = client.commands.get('checkWeather');
+
+cron.schedule(
+    '0 7,16,21 * * *',
+    async () => {
+        const logMessage = `[${new Date().toLocaleString()}] Running cron job to check for weather update...`;
+        console.log(logMessage);
+
+        const channel = client.channels.cache.get(process.env.CHANNEL_ID);
+        if (channel) {
+            const messageToEdit = await channel
+                .send('🌤️ Đang kiểm tra cập nhật tự độngthời tiết...')
+                .catch(console.error);
+
+            // Gọi đúng command checkWeather
+            checkUpdateWeather.checkWeather(
+                client,
+                process.env.CHANNEL_ID,
+                true,
+                messageToEdit
+            );
+        }
+    },
+    {
+        timezone: 'Asia/Ho_Chi_Minh',
+    }
+);
+
+
 const startServer = require('./Backend/server.js'); // Đường dẫn trỏ tới file vừa tạo
 startServer();
 
