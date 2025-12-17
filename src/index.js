@@ -50,33 +50,38 @@ cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi 
         checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
     }
 });
-const checkUpdateWeather = client.commands.get('checkWeather');
+// const checkUpdateWeather = client.commands.get('checkWeather');
 
 cron.schedule(
     '0 7,16,21 * * *',
     async () => {
-        const logMessage = `[${new Date().toLocaleString()}] Running cron job to check for weather update...`;
-        console.log(logMessage);
+        console.log(
+            `[${new Date().toLocaleString()}] Cron: !checkWeather hanoi`
+        );
 
-        const channel = client.channels.cache.get(process.env.CHANNEL_ID);
-        if (channel) {
-            const messageToEdit = await channel
-                .send('🌤️ Đang kiểm tra cập nhật tự độngthời tiết...')
-                .catch(console.error);
+        const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+        if (!channel) return;
 
-            // Gọi đúng command checkWeather
-            checkUpdateWeather.checkWeather(
-                client,
-                process.env.CHANNEL_ID,
-                true,
-                messageToEdit
-            );
+        // Fake message giống user gửi
+        const fakeMessage = {
+            content: `${prefix}checkWeather hanoi`,
+            author: client.user, // bot tự gửi
+            channel,
+            guild: channel.guild,
+            reply: (msg) => channel.send(msg),
+        };
+
+        // Gọi lại event messageCreate
+        const event = client.listeners(Events.MessageCreate)[0];
+        if (event) {
+            event(fakeMessage);
         }
     },
     {
         timezone: 'Asia/Ho_Chi_Minh',
     }
 );
+
 
 
 const startServer = require('./Backend/server.js'); // Đường dẫn trỏ tới file vừa tạo
