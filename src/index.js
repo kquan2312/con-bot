@@ -1,20 +1,20 @@
 require('dotenv').config();
 const cron = require('node-cron');
-
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, Events } = require('discord.js');
-const prefix = '!'; // Định nghĩa prefix cho lệnh
+const prefix = '!';
 
 const client = new Client({ 
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages, // Thêm quyền đọc tin nhắn trong server
-        GatewayIntentBits.MessageContent, // Thêm quyền đọc nội dung tin nhắn
-         GatewayIntentBits.GuildVoiceStates, // thêm dòng này
-        GatewayIntentBits.GuildMembers,     // nên thêm để log join/leave server
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMembers,
     ] 
 });
+
 client.commands = new Collection();
 
 // Load commands
@@ -30,37 +30,40 @@ for (const file of eventFiles) {
     const event = require(`./events/${file}`);
     if (event.once) {
         client.once(event.name, (...args) => event.execute(...args, client));
-    }
-    else {
-        // Truyền thêm prefix cho các sự kiện không phải 'once'
+    } else {
         client.on(event.name, (...args) => event.execute(...args, client, prefix));
     }
 }
-// Cron job check patch mỗi giờ
-const checkUpdateCommand = client.commands.get('checkupdate');
-cron.schedule('0 11 * * *', async () => { // Thay đổi: Chạy 11 sáng mỗi ngày
-    // Thêm log để dễ dàng theo dõi
-    const logMessage = `[${new Date().toLocaleString()}] Running cron job to check for patch update...`;
-    console.log(logMessage);
-    // Gửi tin nhắn đến channel khi cron job bắt đầu
-    const channel = client.channels.cache.get(process.env.CHANNEL_ID);
-    if (channel) { // Gửi tin nhắn "Đang kiểm tra..." và lấy đối tượng message
-        const messageToEdit = await channel.send('Đang kiểm tra bản cập nhật...').catch(console.error);
-        // Truyền message vào hàm checkPatch để chỉnh sửa sau
-        checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
-    }
-});
-// const checkUpdateWeather = client.commands.get('checkWeather');
 
-cron.schedule(
-    '0 7,16,21 * * *',
-    async () => {
-        console.log(
-            `[${new Date().toLocaleString()}] Cron: !checkWeather hanoi`
-        );
+// Start backend server
+const startServer = require('./Backend/server.js');
+startServer();
 
-        const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-        if (!channel) return;
+// Bot ready
+client.once('ready', async () => {
+    console.log(`🌟 Ready! Logged in as ${client.user.tag}`);
+
+    // =====================
+    // Cron check patch 11h
+    // =====================
+    const checkUpdateCommand = client.commands.get('checkupdate');
+    cron.schedule('0 11 * * *', async () => {
+        console.log(`[${new Date().toLocaleString()}] Running cron job to check for patch update...`);
+        const channel = await client.channels.fetch(process.env.CHANNEL_ID).catch(console.error);
+        if (channel) {
+            const messageToEdit = await channel.send('Đang kiểm tra bản cập nhật...').catch(console.error);
+            checkUpdateCommand.checkPatch(client, process.env.CHANNEL_ID, true, messageToEdit);
+        }
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+
+    // =====================
+    // Cron checkWeather 7h,16h,21h
+    // =====================
+    cron.schedule('0 7,16,21 * * *', async () => {
+        console.log(`[${new Date().toLocaleString()}] Cron: !checkWeather hanoi`);
+
+        const channel = await client.channels.fetch(process.env.CHANNEL_ID).catch(console.error);
+        if (!channel) return console.log('Channel not found');
 
         // Fake message giống user gửi
         const fakeMessage = {
@@ -68,24 +71,15 @@ cron.schedule(
             author: client.user, // bot tự gửi
             channel,
             guild: channel.guild,
+            isCron: true,
             reply: (msg) => channel.send(msg),
         };
 
-        // Gọi lại event messageCreate
+        // Gọi event messageCreate
         const event = client.listeners(Events.MessageCreate)[0];
-        if (event) {
-            event(fakeMessage);
-        }
-    },
-    {
-        timezone: 'Asia/Ho_Chi_Minh',
-    }
-);
+        if (event) event(fakeMessage);
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+});
 
-
-
-const startServer = require('./Backend/server.js'); // Đường dẫn trỏ tới file vừa tạo
-startServer();
-
-
+// Login bot
 client.login(process.env.BOT_TOKEN);
