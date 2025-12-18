@@ -89,6 +89,10 @@ async function runWeatherCron() {
         return;
     }
 
+    // Fetch the guild member object for the bot
+    const guild = channel.guild;
+    const selfMember = await guild.members.fetch(client.user.id).catch(console.error);
+
     // Tạo một đối tượng message giả để truyền vào hàm execute của command
     // Lệnh checkWeather của bạn hỗ trợ cả slash và prefix, ta sẽ giả lập prefix command
     const mockMessage = {
@@ -96,6 +100,7 @@ async function runWeatherCron() {
         author: client.user,
         channel,
         guild: channel.guild,
+        member: selfMember, // Thêm member object vào mock message
         reply: (options) => channel.send(options), // Lệnh checkWeather dùng reply, nên ta trỏ nó tới channel.send
     };
 
