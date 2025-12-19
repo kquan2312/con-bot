@@ -48,12 +48,20 @@ client.once('ready', async () => {
     // ---------------------
     // TEST cron ngay sau deploy
     // ---------------------
-    await runWeatherCron();
+    // await runWeatherCron();
 
     // ---------------------
     // Cron chính checkWeather 7h/16h/21h
     // ---------------------
     cron.schedule('0 7,16,21 * * *', runWeatherCron, { timezone: 'Asia/Ho_Chi_Minh' });
+     cron.schedule( "1 11 * * *",
+  async () => {
+    await runCheckinGICron();
+  },
+  {
+    timezone: "Asia/Ho_Chi_Minh",
+  }
+);
 
     // ---------------------
     // Cron check patch 11h
@@ -110,6 +118,51 @@ async function runWeatherCron() {
         console.error(`[Cron Error] Error executing '${commandName}':`, error);
         channel.send(`Đã có lỗi xảy ra khi chạy cron job cho lệnh \`${commandName}\`.`);
     }
+}
+
+async function runCheckinGICron() {
+  const commandName = "checkingi";
+  const command = client.commands.get(commandName);
+
+  if (!command) {
+    console.error(`[Cron Error] Command '${commandName}' not found.`);
+    return;
+  }
+
+  console.log(
+    `[${new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}] Cron: Running '${commandName}'.`
+  );
+
+  const channel = await client.channels
+    .fetch(process.env.CHECKIN_GI_CHANNEL_ID)
+    .catch(console.error);
+
+  if (!channel) {
+    console.error("[Cron Error] Channel not found for checkinGI cron.");
+    return;
+  }
+
+  const guild = channel.guild;
+  const selfMember = await guild.members
+    .fetch(client.user.id)
+    .catch(console.error);
+
+  // mock message giống prefix command
+  const mockMessage = {
+    content: `${prefix}checkingi`,
+    author: client.user,
+    channel,
+    guild,
+    member: selfMember,
+    reply: (options) => channel.send(options),
+  };
+
+  try {
+    await command.execute(mockMessage);
+  } catch (error) {
+    console.error(`[Cron Error] Error executing '${commandName}':`, error);
+    channel.send(`❌ Lỗi khi chạy cron cho \`${commandName}\``);
+  }
 }
 
 // =====================
